@@ -1,0 +1,190 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserRole {
+  STUDENT
+  ADMIN
+  SUPER_ADMIN
+}
+
+enum Semester {
+  FIRST
+  SECOND
+}
+
+enum ResultStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum ResultSource {
+  STUDENT
+  ADMIN
+}
+
+model User {
+  id           String   @id @default(uuid()) @db.Uuid
+  fullName     String
+  email        String   @unique
+  passwordHash String
+  role         UserRole @default(STUDENT)
+  isActive     Boolean  @default(true)
+
+  level Int?
+
+  // Email verification
+  emailVerifiedAt DateTime?
+
+  // Magic-link token hashes and expiration times
+  emailVerificationTokenHash      String?   @unique
+  emailVerificationTokenExpiresAt DateTime?
+
+  passwordResetTokenHash      String?   @unique
+  passwordResetTokenExpiresAt DateTime?
+
+  uploadedSheets ResultSheet[] @relation("UploadedSheets")
+  auditLogs      AuditLog[]
+
+  departmentId String?     @db.Uuid
+  department   Department? @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([role, isActive])
+  @@map("users")
+}
+
+model Faculty {
+  id          String  @id @default(uuid()) @db.Uuid
+  name        String  @unique
+  code        String? @unique
+  description String?
+
+  departments  Department[]
+  resultSheets ResultSheet[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("faculties")
+}
+
+model Department {
+  id       String  @id @default(uuid()) @db.Uuid
+  name     String
+  code     String?
+  isActive Boolean @default(true)
+
+  facultyId String  @db.Uuid
+  faculty   Faculty @relation(fields: [facultyId], references: [id], onDelete: Restrict)
+
+  users        User[]
+  courses      Course[]
+  resultSheets ResultSheet[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([facultyId, name])
+  @@unique([facultyId, code])
+  @@index([facultyId, isActive])
+  @@map("departments")
+}
+
+model AcademicSession {
+  id        String  @id @default(uuid()) @db.Uuid
+  name      String  @unique
+  startYear Int
+  endYear   Int
+  isActive  Boolean @default(false)
+
+  resultSheets ResultSheet[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("academic_sessions")
+}
+
+model Course {
+  id          String  @id @default(uuid()) @db.Uuid
+  title       String
+  code        String
+  description String?
+
+  departmentId String     @db.Uuid
+  department   Department @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+
+  resultSheets ResultSheet[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([departmentId, code])
+  @@index([departmentId, title])
+  @@map("courses")
+}
+
+model ResultSheet {
+  id String @id @default(uuid()) @db.Uuid
+
+  facultyId         String   @db.Uuid
+  departmentId      String   @db.Uuid
+  academicSessionId String   @db.Uuid
+  semester          Semester
+  level             Int?
+  courseId          String?  @db.Uuid
+
+  faculty         Faculty         @relation(fields: [facultyId], references: [id], onDelete: Restrict)
+  department      Department      @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  academicSession AcademicSession @relation(fields: [academicSessionId], references: [id], onDelete: Restrict)
+  course          Course?         @relation(fields: [courseId], references: [id], onDelete: Restrict)
+
+  title            String
+  originalFilename String
+  storageKey       String  @unique
+  mimeType         String
+  fileSize         BigInt
+  checksum         String?
+
+  uploadedById String       @db.Uuid
+  uploadedBy   User         @relation("UploadedSheets", fields: [uploadedById], references: [id], onDelete: Restrict)
+  source       ResultSource
+  status       ResultStatus @default(DRAFT)
+
+  publishedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([facultyId, departmentId, academicSessionId, semester, level, status])
+  @@index([departmentId, courseId, academicSessionId, semester, status])
+  @@index([uploadedById, createdAt])
+  @@index([status, publishedAt])
+  @@map("result_sheets")
+}
+
+model AuditLog {
+  id String @id @default(uuid()) @db.Uuid
+
+  userId String? @db.Uuid
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  action     String
+  entityType String
+  entityId   String?
+  details    Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([entityType, entityId])
+  @@map("audit_logs")
+}
